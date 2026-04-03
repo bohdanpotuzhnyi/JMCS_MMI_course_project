@@ -7,5 +7,5 @@ Expected responsibilities:
 - microphone capture
 - speech-to-text
 - intent extraction
-- slot extraction
+- slot extraction (reserved for future use)
 - emission of normalized `VoiceEvent` objects
