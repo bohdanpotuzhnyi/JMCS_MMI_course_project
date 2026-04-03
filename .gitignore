@@ -50,3 +50,6 @@ pytestdebug.log
 .DS_Store
 .idea/
 .vscode/
+
+freshenv/
+*.task
