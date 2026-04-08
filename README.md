@@ -125,3 +125,50 @@ According to the mini-project evaluation criteria for JMCS, the project should a
 ## Core Idea
 
 The value of this project is not only in building two small apps, but in creating a reusable multimodal interaction toolkit that supports natural object manipulation through speech and gesture.
+
+## Quick Start
+
+The repository includes setup scripts that create the virtual environment, install Python dependencies, download the local speech and gesture models, and export the required paths.
+
+### macOS
+
+From the project root:
+
+```bash
+chmod +x scripts/setup_macos.sh scripts/activate_macos.sh
+./scripts/setup_macos.sh
+source scripts/activate_macos.sh
+python -m apps.demo_app
+```
+
+### Windows PowerShell
+
+From the project root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/setup_windows.ps1
+. .\scripts\activate_windows.ps1
+python -m apps.demo_app
+```
+
+### Windows cmd.exe
+
+From the project root:
+
+```bat
+powershell -ExecutionPolicy Bypass -File scripts\setup_windows.ps1
+scripts\activate_windows.bat
+python -m apps.demo_app
+```
+
+## Current Demo Controls
+
+The current demo app opens a canvas where squares are rendered on top of the live camera view.
+
+- `Start Camera`: starts the gesture detector and embeds the annotated camera feed into the square field
+- `Start Voice`: starts the local Vosk-based speech recognizer
+- `Add Square`: creates a square object
+- mouse click on a square: selects it
+- arrow keys or spoken commands like `move left`, `move right`, `move up`, `move down`: move the selected square
+- `Q` / `E` or spoken commands like `rotate left`, `rotate right`: rotate the selected square
+- `Delete` / `Backspace`: remove the selected square
