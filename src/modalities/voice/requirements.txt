@@ -1,3 +1,4 @@
 # Voice modality (install from repo root: pip install -r src/modalities/voice/requirements.txt)
 SpeechRecognition>=3.10.0
 PyAudio>=0.2.14
+vosk>=0.3.44,<0.4

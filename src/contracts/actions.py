@@ -3,7 +3,7 @@
 from __future__ import annotations
 from enum import Enum
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ActionType(str, Enum):
@@ -42,4 +42,4 @@ class ActionPayload(BaseModel):
     position: Optional[Position] = None
     scale: Optional[float] = None   
     rotation: Optional[float] = None
-    source_events: list[str] = []    
+    source_events: list[str] = Field(default_factory=list)

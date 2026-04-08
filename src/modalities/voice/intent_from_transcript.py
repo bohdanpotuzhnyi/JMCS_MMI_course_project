@@ -11,11 +11,17 @@ Flow in the full voice pipeline:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from difflib import SequenceMatcher
+import re
 from typing import Optional
 
 from .voice_event import VoiceIntent
 
-__all__ = ["IntentFromTranscriptResult", "intent_from_transcript"]
+__all__ = [
+    "COMMAND_GRAMMAR",
+    "IntentFromTranscriptResult",
+    "intent_from_transcript",
+]
 
 
 @dataclass
@@ -25,6 +31,8 @@ class IntentFromTranscriptResult:
     intent: Optional[VoiceIntent] = None
     # 1.0 = at least one keyword phrase matched; 0.0 = no match (unrecognized command).
     confidence: float = 0.0
+    matched_phrase: Optional[str] = None
+    normalized_transcript: str = ""
 
 
 @dataclass(frozen=True)
@@ -46,10 +54,66 @@ _RULES: tuple[_Rule, ...] = (
     _Rule("down", ("move down", "go down", "down")),
 )
 
+COMMAND_GRAMMAR: tuple[str, ...] = tuple(
+    phrase
+    for rule in _RULES
+    for phrase in rule.phrases
+)
+
+_PHRASE_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("write", "right"),
+    ("wright", "right"),
+    ("rite", "right"),
+    ("lift", "left"),
+    ("let", "left"),
+    ("laugh", "left"),
+    ("go to left", "go left"),
+    ("go to right", "go right"),
+    ("go to up", "go up"),
+    ("go to down", "go down"),
+    ("counter clockwise", "counterclockwise"),
+    ("count the clockwise", "counterclockwise"),
+    ("turn life", "turn left"),
+    ("turn lift", "turn left"),
+    ("turn write", "turn right"),
+    ("rotate life", "rotate left"),
+    ("rotate write", "rotate right"),
+)
+
 
 def _normalize_transcript(raw: str) -> str:
-    """Lowercase, trim, collapse spaces so matching is stable across STT quirks."""
-    return " ".join(raw.lower().strip().split())
+    """Lowercase, strip punctuation, and normalize common STT quirks."""
+    text = raw.lower().strip()
+    text = re.sub(r"[^a-z0-9\s-]", " ", text)
+    text = " ".join(text.split())
+    for src, dst in _PHRASE_REPLACEMENTS:
+        text = text.replace(src, dst)
+    return " ".join(text.split())
+
+
+def _fuzzy_match(text: str) -> IntentFromTranscriptResult:
+    best_intent: Optional[VoiceIntent] = None
+    best_phrase: Optional[str] = None
+    best_score = 0.0
+
+    for rule in _RULES:
+        for phrase in rule.phrases:
+            score = SequenceMatcher(None, text, phrase).ratio()
+            if phrase in text:
+                score = max(score, 0.96)
+            if score > best_score:
+                best_score = score
+                best_intent = rule.intent
+                best_phrase = phrase
+
+    if best_score >= 0.74:
+        return IntentFromTranscriptResult(
+            intent=best_intent,
+            confidence=min(0.95, best_score),
+            matched_phrase=best_phrase,
+            normalized_transcript=text,
+        )
+    return IntentFromTranscriptResult(confidence=0.0, normalized_transcript=text)
 
 
 def intent_from_transcript(transcript: str) -> IntentFromTranscriptResult:
@@ -60,11 +124,16 @@ def intent_from_transcript(transcript: str) -> IntentFromTranscriptResult:
     """
     text = _normalize_transcript(transcript)
     if not text:
-        return IntentFromTranscriptResult(confidence=0.0)
+        return IntentFromTranscriptResult(confidence=0.0, normalized_transcript=text)
 
     for rule in _RULES:
         for phrase in rule.phrases:
             if phrase in text:
-                return IntentFromTranscriptResult(intent=rule.intent, confidence=1.0)
+                return IntentFromTranscriptResult(
+                    intent=rule.intent,
+                    confidence=1.0,
+                    matched_phrase=phrase,
+                    normalized_transcript=text,
+                )
 
-    return IntentFromTranscriptResult(confidence=0.0)
+    return _fuzzy_match(text)

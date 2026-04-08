@@ -3,7 +3,7 @@
 ## Technical Evaluation
 
 - measure gesture recognition reliability
-- measure speech recognition reliability in the target environment
+- measure speech recognition reliability in the (virtual workspace, game)
 - measure fusion success for multimodal commands
 - log ambiguity cases and recovery paths
 
@@ -14,7 +14,7 @@
 - compare task completion across the two demo apps
 - collect subjective feedback on workload and naturalness
 
-## Suggested Metrics
+## Metrics
 
 - command success rate
 - task completion time

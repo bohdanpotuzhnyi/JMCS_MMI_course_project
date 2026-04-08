@@ -42,6 +42,9 @@ pytestdebug.log
 .env
 .env.*
 *.local
+.project-env.sh
+.project-env.ps1
+.project-env.cmd
 
 # Logs
 *.log
@@ -53,3 +56,8 @@ pytestdebug.log
 
 freshenv/
 *.task
+
+# Downloaded local models and setup artifacts
+tmp-vosk-model.zip
+src/modalities/gesture/models/
+src/modalities/voice/models/

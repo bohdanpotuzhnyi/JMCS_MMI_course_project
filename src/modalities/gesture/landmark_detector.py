@@ -1,5 +1,7 @@
 # modalities/gesture/landmark_detector.py
 from __future__ import annotations
+import os
+import tempfile
 import numpy as np
 from dataclasses import dataclass
 
@@ -31,19 +33,36 @@ class LandmarkDetector:
         self._tracking_confidence = tracking_confidence
         self._landmarker = None
 
-    def _init_landmarker(self):
-        import urllib.request, os, tempfile
+    def _resolve_model_path(self) -> str:
+        """
+        Resolve a local MediaPipe hand-landmarker model path.
 
-        model_url = (
-            "https://storage.googleapis.com/mediapipe-models/"
-            "hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+        Order:
+        1. MEDIAPIPE_HAND_MODEL_PATH environment variable
+        2. temp cache from a previous successful download
+        3. common local project folders
+        """
+        env_path = os.environ.get("MEDIAPIPE_HAND_MODEL_PATH")
+        if env_path:
+            return env_path
+
+        candidates = (
+            os.path.join(tempfile.gettempdir(), "hand_landmarker.task"),
+            os.path.join(os.path.dirname(__file__), "models", "hand_landmarker.task"),
+            os.path.join(os.path.dirname(__file__), "model", "hand_landmarker.task"),
         )
-        model_path = os.path.join(tempfile.gettempdir(), "hand_landmarker.task")
+        for candidate in candidates:
+            if os.path.exists(candidate):
+                return candidate
 
-        if not os.path.exists(model_path):
-            print("Downloading MediaPipe hand model (~25MB)...")
-            urllib.request.urlretrieve(model_url, model_path)
-            print("Done.")
+        raise FileNotFoundError(
+            "No MediaPipe hand model found. Set MEDIAPIPE_HAND_MODEL_PATH to a local "
+            "hand_landmarker.task file, or place it under "
+            "src/modalities/gesture/models/hand_landmarker.task."
+        )
+
+    def _init_landmarker(self):
+        model_path = self._resolve_model_path()
 
         options = HandLandmarkerOptions(
             base_options=python.BaseOptions(model_asset_path=model_path),
