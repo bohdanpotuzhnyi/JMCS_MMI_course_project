@@ -1,12 +1,11 @@
 """
 Microphone → local speech-to-text → VoiceEvent.
 
-This keeps the existing microphone capture flow based on `speech_recognition`,
-but replaces the remote Google recognizer with a local Vosk recognizer.
-
-Connection to other files:
-  intent_from_transcript.py  →  classifies the transcript string
-  voice_event.py             →  defines the dict shape you emit
+One-file mental model:
+1) SpeechRecognition records audio from the microphone
+2) Vosk turns audio bytes into text
+3) intent_from_transcript turns text into an intent label
+4) we emit a contracts.events.VoiceEvent into the runtime
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable
 
 from contracts.events import VoiceEvent
 
@@ -24,74 +23,50 @@ from .intent_from_transcript import COMMAND_GRAMMAR, intent_from_transcript
 
 __all__ = ["VoskVoiceAdapter", "SpeechRecognitionVoiceAdapter", "recognize_vosk"]
 
+# Keep imports simple: this module is only used when the voice modality is enabled.
+try:
+    import speech_recognition as sr
+except ImportError as e:  # pragma: no cover
+    raise ImportError(
+        "Voice module requires the 'SpeechRecognition' package. Install with: pip install SpeechRecognition"
+    ) from e
+
+try:
+    import vosk
+except ImportError as e:  # pragma: no cover
+    raise ImportError(
+        "Voice module requires the 'vosk' package. Install with: pip install vosk"
+    ) from e
+
 # Callback types: fusion/core will later pass something like on_voice_event to receive events.
 OnVoiceEvent = Callable[[VoiceEvent], None]
 OnError = Callable[[str], None]
 
 
-def _ensure_speech_recognition():
-    """Load the microphone helper library only when the adapter is actually used."""
-    try:
-        import speech_recognition as sr
-    except ImportError as e:
-        raise ImportError(
-            "VoskVoiceAdapter needs the 'SpeechRecognition' package for microphone capture. "
-            "Install: pip install SpeechRecognition"
-        ) from e
-    return sr
-
-
-def _ensure_vosk():
-    """Load the local speech recognizer only when it is actually used."""
-    try:
-        import vosk
-    except ImportError as e:
-        raise ImportError(
-            "VoskVoiceAdapter needs the 'vosk' package for local speech recognition. "
-            "Install: pip install vosk"
-        ) from e
-    return vosk
-
-
-def _default_model_path() -> Optional[str]:
+def _default_model_path() -> str:
     """
-    Resolve the Vosk model path.
+    Return the default Vosk model folder.
 
-    Order:
-    1. VOSK_MODEL_PATH environment variable
-    2. common local folder names under the voice module
+    The setup scripts place the model at `src/modalities/voice/models/vosk-model` and also
+    export `VOSK_MODEL_PATH`. We support the env var override, otherwise we use the known
+    local path directly (no searching).
     """
     env_path = os.environ.get("VOSK_MODEL_PATH")
     if env_path:
         return env_path
-
     module_dir = Path(__file__).resolve().parent
-    candidates = (
-        module_dir / "models" / "vosk-model",
-        module_dir / "models" / "vosk",
-        module_dir / "model",
-    )
-    for candidate in candidates:
-        if candidate.exists():
-            return str(candidate)
-    return None
+    return str(module_dir / "models" / "vosk-model")
 
 
-def _build_voice_event(transcript: str) -> VoiceEvent:
-    """
-    Bridge from raw STT text to the toolkit contract.
-
-    - intent_from_transcript: did we recognize a movement keyword?
-    - confidence: combines "keyword hit" vs "we heard something but no keyword"
-    """
+def _to_voice_event(transcript: str) -> VoiceEvent:
+    # Turn plain text into our toolkit event object.
     parsed = intent_from_transcript(transcript)
     trimmed = transcript.strip()
-    if parsed.confidence == 1.0:
-        conf = 1.0
-    elif trimmed:
-        conf = 0.3
-    else:
-        conf = 0.0
+    # Confidence rule:
+    # - 1.0 if it's a clean command match
+    # - 0.3 if we heard something but it wasn't a command
+    # - 0.0 if empty
+    conf = 1.0 if parsed.confidence == 1.0 else (0.3 if trimmed else 0.0)
     return VoiceEvent(
         timestamp=time.monotonic(),
         confidence=conf,
@@ -101,31 +76,32 @@ def _build_voice_event(transcript: str) -> VoiceEvent:
     )
 
 
-def _best_transcript_from_result(result: dict) -> str:
-    alternatives = result.get("alternatives") or []
+def _pick_best_text(vosk_final_result: dict) -> str:
+    """Prefer the candidate that matches an intent best (more stable for commands)."""
+    # Vosk can return multiple alternatives; we pick the one that looks most like a known command.
     candidates: list[str] = []
-    if alternatives:
-        candidates.extend(
-            candidate.get("text", "").strip()
-            for candidate in alternatives
-        )
-    if result.get("text"):
-        candidates.append(result.get("text", "").strip())
+    for alt in (vosk_final_result.get("alternatives") or []):
+        text = (alt.get("text") or "").strip()
+        if text:
+            candidates.append(text)
+    top = (vosk_final_result.get("text") or "").strip()
+    if top:
+        candidates.append(top)
 
     best_text = ""
-    best_confidence = -1.0
-    for candidate in candidates:
-        parsed = intent_from_transcript(candidate)
-        if parsed.confidence > best_confidence:
-            best_confidence = parsed.confidence
-            best_text = candidate
-    return best_text.strip()
+    best_score = -1.0
+    for text in candidates:
+        score = intent_from_transcript(text).confidence
+        if score > best_score:
+            best_score = score
+            best_text = text
+    return best_text
 
 
 def recognize_vosk(
-    audio: object,
+    audio: sr.AudioData,
     sample_rate: int,
-    model: object,
+    model: vosk.Model,
     grammar: tuple[str, ...] | None = None,
 ) -> str:
     """
@@ -134,7 +110,7 @@ def recognize_vosk(
     The `audio` object is a SpeechRecognition AudioData instance. We only rely on
     its `get_raw_data` method to keep the adapter boundary simple.
     """
-    vosk = _ensure_vosk()
+    # Passing a grammar to Vosk makes it listen mainly for our command phrases.
     grammar_payload = None
     if grammar:
         grammar_payload = json.dumps(list(grammar) + ["[unk]"])
@@ -146,6 +122,7 @@ def recognize_vosk(
     recognizer.SetWords(True)
     recognizer.SetMaxAlternatives(5)
 
+    # Convert the audio into 16kHz, 16-bit PCM bytes (what Vosk expects).
     pcm_bytes = audio.get_raw_data(
         convert_rate=sample_rate,
         convert_width=2,
@@ -153,7 +130,7 @@ def recognize_vosk(
     recognizer.AcceptWaveform(pcm_bytes)
 
     final_result = json.loads(recognizer.FinalResult())
-    return _best_transcript_from_result(final_result)
+    return _pick_best_text(final_result)
 
 
 class VoskVoiceAdapter:
@@ -169,40 +146,37 @@ class VoskVoiceAdapter:
         self,
         *,
         lang: str = "en-US",
-        model_path: Optional[str] = None,
+        model_path: str | None = None,
         sample_rate: int = 16000,
-        on_voice_event: Optional[OnVoiceEvent] = None,
-        on_error: Optional[OnError] = None,
+        on_voice_event: OnVoiceEvent | None = None,
+        on_error: OnError | None = None,
     ) -> None:
-        sr = _ensure_speech_recognition()
-        vosk = _ensure_vosk()
-
+        # Find the Vosk model folder.
         resolved_model_path = model_path or _default_model_path()
-        if not resolved_model_path:
-            raise ValueError(
-                "No Vosk model path configured. Set VOSK_MODEL_PATH or place a model under "
-                "src/modalities/voice/models/vosk-model."
-            )
         if not Path(resolved_model_path).exists():
             raise FileNotFoundError(
                 f"Vosk model path does not exist: {resolved_model_path}"
             )
 
-        self._sr = sr
+        # Store config + callbacks.
         self._lang = lang
-        self._sample_rate = sample_rate
         self._on_voice_event = on_voice_event
         self._on_error = on_error
+        self._sample_rate = sample_rate
+        self._grammar = COMMAND_GRAMMAR
+
+        # SpeechRecognition "front end" (microphone + phrase detection).
         self._recognizer = sr.Recognizer()
         self._recognizer.dynamic_energy_threshold = True
         self._recognizer.pause_threshold = 0.5
         self._recognizer.non_speaking_duration = 0.25
         self._recognizer.phrase_threshold = 0.2
+
         self._microphone = sr.Microphone(sample_rate=sample_rate)
+        # Vosk "back end" (audio bytes -> text).
         self._model = vosk.Model(resolved_model_path)
-        self._grammar = COMMAND_GRAMMAR
         self._running = False
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
 
     def listen_once(
         self,
@@ -210,17 +184,18 @@ class VoskVoiceAdapter:
         timeout: float = 5.0,
         phrase_time_limit: float = 4.0,
         adjust_ambient: bool = True,
-    ) -> Optional[VoiceEvent]:
+    ) -> VoiceEvent | None:
         """
         Record one utterance and return a VoiceEvent, or None if nothing heard / recognition fails.
 
         Steps: listen → bytes → recognize_vosk → text (string) → _build_voice_event.
         """
-        sr = self._sr
         try:
             with self._microphone as source:
+                # Quick calibration to current background noise level.
                 if adjust_ambient:
                     self._recognizer.adjust_for_ambient_noise(source, duration=0.4)
+                # This blocks until it detects a phrase (or hits timeout).
                 audio = self._recognizer.listen(
                     source,
                     timeout=timeout,
@@ -232,18 +207,21 @@ class VoskVoiceAdapter:
         try:
             text = recognize_vosk(audio, self._sample_rate, self._model, self._grammar)
         except Exception as e:
+            # Any Vosk/decoding error ends this attempt.
             if self._on_error:
                 self._on_error(f"recognition_service_error:{e}")
             return None
 
         if not text:
+            # We got audio but no clear text.
             if self._on_error:
                 self._on_error("could_not_understand_audio")
             return None
 
-        return _build_voice_event(text)
+        return _to_voice_event(text)
 
     def start(self) -> None:
+        # Start a background thread that continuously listens.
         if self._running:
             return
         self._running = True
@@ -251,6 +229,7 @@ class VoskVoiceAdapter:
         self._thread.start()
 
     def stop(self) -> None:
+        # Stop listening and wait briefly for the thread to exit.
         self._running = False
         if self._thread is not None:
             self._thread.join(timeout=2.0)
@@ -261,6 +240,7 @@ class VoskVoiceAdapter:
 
     def _loop(self) -> None:
         """Background thread: repeatedly run listen_once and notify on_voice_event."""
+        # Keep looping until stop() flips _running to False.
         while self._running:
             ev = self.listen_once(timeout=1.0, phrase_time_limit=4.0, adjust_ambient=False)
             if ev is not None and self._on_voice_event:
