@@ -15,12 +15,13 @@ import json
 import os
 import threading
 import time
+from importlib import import_module
 from pathlib import Path
 from typing import Callable, Optional
 
 from contracts.events import VoiceEvent
 
-from .intent_from_transcript import COMMAND_GRAMMAR, intent_from_transcript
+intent_resolver = import_module("modalities.voice.intent_from_transcript")
 
 __all__ = ["VoskVoiceAdapter", "SpeechRecognitionVoiceAdapter", "recognize_vosk"]
 
@@ -84,7 +85,7 @@ def _build_voice_event(transcript: str) -> VoiceEvent:
     - intent_from_transcript: did we recognize a movement keyword?
     - confidence: combines "keyword hit" vs "we heard something but no keyword"
     """
-    parsed = intent_from_transcript(transcript)
+    parsed = intent_resolver.intent_from_transcript(transcript)
     trimmed = transcript.strip()
     if parsed.confidence == 1.0:
         conf = 1.0
@@ -115,7 +116,7 @@ def _best_transcript_from_result(result: dict) -> str:
     best_text = ""
     best_confidence = -1.0
     for candidate in candidates:
-        parsed = intent_from_transcript(candidate)
+        parsed = intent_resolver.intent_from_transcript(candidate)
         if parsed.confidence > best_confidence:
             best_confidence = parsed.confidence
             best_text = candidate
@@ -200,7 +201,7 @@ class VoskVoiceAdapter:
         self._recognizer.phrase_threshold = 0.2
         self._microphone = sr.Microphone(sample_rate=sample_rate)
         self._model = vosk.Model(resolved_model_path)
-        self._grammar = COMMAND_GRAMMAR
+        self._grammar = intent_resolver.COMMAND_GRAMMAR
         self._running = False
         self._thread: Optional[threading.Thread] = None
 

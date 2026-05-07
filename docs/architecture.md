@@ -13,6 +13,29 @@ The architecture is local-first:
 
 This separation keeps modality logic, fusion logic, and app-specific logic independent.
 
+## Implemented Architecture Diagrams
+
+The following diagrams were generated from the current repository structure and runtime wiring.
+They describe the implementation as it exists now, including the places where the shape puzzle app bypasses part of the ideal app-facing action flow.
+
+### 1. System Architecture
+
+![Implemented system architecture](diagrams/system-architecture.svg)
+
+Source: [`docs/diagrams/system-architecture.puml`](diagrams/system-architecture.puml)
+
+### 2. Runtime Sequence
+
+![Runtime sequence](diagrams/runtime-sequence.svg)
+
+Source: [`docs/diagrams/runtime-sequence.puml`](diagrams/runtime-sequence.puml)
+
+### 3. Core Implementation View
+
+![Core implementation view](diagrams/core-implementation.svg)
+
+Source: [`docs/diagrams/core-implementation.puml`](diagrams/core-implementation.puml)
+
 ## Goals
 
 - support object manipulation through voice and gesture

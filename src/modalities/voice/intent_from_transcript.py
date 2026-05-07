@@ -20,6 +20,7 @@ from .voice_event import VoiceIntent
 __all__ = [
     "COMMAND_GRAMMAR",
     "IntentFromTranscriptResult",
+    "configure_intent_rules",
     "intent_from_transcript",
 ]
 
@@ -46,8 +47,21 @@ class _Rule:
 # We walk this list top to bottom. First phrase that appears *anywhere* in the text wins.
 # More specific phrases must come *before* their broader matches.
 _RULES: tuple[_Rule, ...] = (
+    _Rule("create-sphere", ("create sphere", "make sphere", "add sphere")),
+    _Rule("create-cuboid", ("create cuboid", "make cuboid", "add cuboid")),
+    _Rule("create-cube", ("create cube", "make cube", "add cube")),
+    _Rule("create-diamond", ("create diamond", "make diamond", "add diamond")),
     _Rule("rotate-left", ("rotate left", "turn left", "counterclockwise", "counter-clockwise")),
     _Rule("rotate-right", ("rotate right", "turn right", "clockwise")),
+    _Rule("move-here", ("move here", "move there", "place here", "put here")),
+    _Rule("select", ("select", "choose this", "pick this")),
+    _Rule("drag", ("drag", "start drag", "move with hand")),
+    _Rule("rotate", ("rotate", "start rotate", "spin")),
+    _Rule("resize", ("resize", "scale", "start resize")),
+    _Rule("done", ("done", "finish", "stop", "drop")),
+    _Rule("insert", ("insert", "lock in", "place it")),
+    _Rule("restart", ("restart", "reset game", "start over")),
+    _Rule("delete", ("delete", "remove this", "delete this", "remove")),
     _Rule("left", ("move left", "go left", "left")),
     _Rule("right", ("move right", "go right", "right")),
     _Rule("up", ("move up", "go up", "up")),
@@ -81,13 +95,29 @@ _PHRASE_REPLACEMENTS: tuple[tuple[str, str], ...] = (
 )
 
 
+def configure_intent_rules(intent_phrases: dict[str, tuple[str, ...]]) -> None:
+    """Replace the active voice phrase grammar at runtime."""
+    global _RULES, COMMAND_GRAMMAR
+
+    _RULES = tuple(
+        _Rule(intent, tuple(phrases))
+        for intent, phrases in intent_phrases.items()
+        if phrases
+    )
+    COMMAND_GRAMMAR = tuple(
+        phrase
+        for rule in _RULES
+        for phrase in rule.phrases
+    )
+
+
 def _normalize_transcript(raw: str) -> str:
     """Lowercase, strip punctuation, and normalize common STT quirks."""
     text = raw.lower().strip()
     text = re.sub(r"[^a-z0-9\s-]", " ", text)
     text = " ".join(text.split())
     for src, dst in _PHRASE_REPLACEMENTS:
-        text = text.replace(src, dst)
+        text = re.sub(rf"\b{re.escape(src)}\b", dst, text)
     return " ".join(text.split())
 
 

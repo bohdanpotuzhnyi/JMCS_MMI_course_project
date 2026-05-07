@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
@@ -21,6 +21,11 @@ class ActionType(str, Enum):
     PAN              = "pan"
     OPEN_MENU        = "open_menu"
     CLOSE_MENU       = "close_menu"
+    CREATE_OBJECT    = "create_object"
+    SET_INTERACTION_MODE = "set_interaction_mode"
+    INSERT_OBJECT    = "insert_object"
+    RESET_APP        = "reset_app"
+    UPDATE_POINTER   = "update_pointer"
     NOOP             = "noop" 
 
 
@@ -42,4 +47,7 @@ class ActionPayload(BaseModel):
     position: Optional[Position] = None
     scale: Optional[float] = None   
     rotation: Optional[float] = None
+    object_type: Optional[str] = None
+    mode: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     source_events: list[str] = Field(default_factory=list)

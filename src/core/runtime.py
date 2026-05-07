@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
+
+from contracts.actions import ActionPayload
 from contracts.events import GestureEvent, VoiceEvent
+from infra.config.fusion_config import FusionConfig
 
 from .application_router import ApplicationController, ApplicationRouter
 from .event_bus import EventBus
@@ -16,9 +20,9 @@ class CollaborationRuntime:
     actions to the active application.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, fusion_config: FusionConfig | None = None) -> None:
         self.bus = EventBus()
-        self.fusion = FusionEngine()
+        self.fusion = FusionEngine(config=fusion_config)
         self.router = ApplicationRouter()
 
     def register_app(self, app: ApplicationController) -> None:
@@ -29,14 +33,20 @@ class CollaborationRuntime:
 
     def handle_gesture(self, event: GestureEvent) -> None:
         self.bus.publish_event(event)
-        action = self.fusion.handle_gesture_event(event)
-        if action is not None:
-            self.bus.publish_action(action)
-            self.router.route(action)
+        self._publish_actions(self.fusion.handle_gesture_event(event))
 
     def handle_voice(self, event: VoiceEvent) -> None:
         self.bus.publish_event(event)
-        action = self.fusion.handle_voice_event(event)
-        if action is not None:
+        self._publish_actions(self.fusion.handle_voice_event(event))
+
+    def _publish_actions(
+        self,
+        actions: ActionPayload | Iterable[ActionPayload] | None,
+    ) -> None:
+        if actions is None:
+            return
+        if isinstance(actions, ActionPayload):
+            actions = [actions]
+        for action in actions:
             self.bus.publish_action(action)
             self.router.route(action)

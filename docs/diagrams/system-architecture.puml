@@ -1,0 +1,76 @@
+@startuml
+title Multimodal Toolkit - Implemented System Architecture
+
+skinparam backgroundColor white
+skinparam componentStyle rectangle
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+actor User
+
+package "Input Modalities" {
+  component "GestureDetector\n(MediaPipe/OpenCV pipeline)" as GestureDetector
+  component "VoskVoiceAdapter\n(SpeechRecognition + Vosk)" as VoiceAdapter
+  component "intent_from_transcript\n(rule-based intent parser)" as IntentParser
+}
+
+package "Shared Contracts" {
+  component "GestureEvent /\nVoiceEvent" as Events
+  component "ActionPayload" as Actions
+}
+
+package "Collaboration Core" {
+  component "CollaborationRuntime" as Runtime
+  component "EventBus" as EventBus
+  component "FusionEngine\n(rule-based)" as Fusion
+  component "InteractionContextStore" as Context
+  component "ApplicationRouter" as Router
+}
+
+package "Applications" {
+  component "DemoCanvasApp" as DemoApp
+  component "ShapePuzzleApp" as ShapePuzzle
+  component "LoggingDemoApp" as LoggingApp
+  component "Virtual Workspace\n(planned)" as VirtualWorkspace
+}
+
+User --> GestureDetector : hand gestures\nvia webcam
+User --> VoiceAdapter : spoken commands\nvia microphone
+
+VoiceAdapter --> IntentParser : transcript
+IntentParser --> VoiceAdapter : intent label
+
+GestureDetector --> Events : emit GestureEvent
+VoiceAdapter --> Events : emit VoiceEvent
+
+GestureDetector --> Runtime : handle_gesture(event)
+VoiceAdapter --> Runtime : handle_voice(event)
+
+Runtime --> EventBus : publish_event(event)
+Runtime --> Fusion : handle_*_event(event)
+Fusion --> Context : remember recent\nmodality state
+Fusion --> Actions : emit ActionPayload
+Runtime --> EventBus : publish_action(action)
+Runtime --> Router : route(action)
+
+Router --> DemoApp : handle_action(action)
+Router --> ShapePuzzle : handle_action(action)
+Router --> LoggingApp : handle_action(action)
+Router ..> VirtualWorkspace : intended app boundary
+
+EventBus --> DemoApp : subscribe_events/actions\n(logging + UI feedback)
+EventBus --> ShapePuzzle : subscribe_events\n(custom raw event logic)
+
+note right of ShapePuzzle
+Current implementation is hybrid:
+- registered as a routed app
+- also listens to raw BaseEvent objects
+- monkey-patches voice grammar for game commands
+end note
+
+note bottom of VirtualWorkspace
+Documented in the repo, but no concrete app module
+is wired into the runtime yet.
+end note
+
+@enduml

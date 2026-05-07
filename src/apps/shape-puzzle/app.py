@@ -1,32 +1,18 @@
 import tkinter as tk
 import math
 import random
-from typing import Dict, Any, Optional
+from pathlib import Path
+from typing import Dict, Optional
 
 import cv2
 from PIL import Image, ImageTk
 
 from contracts.actions import ActionPayload, ActionType
-from contracts.events import BaseEvent, GestureEvent, VoiceEvent, GestureType
 from core.runtime import CollaborationRuntime
+from infra.config.fusion_config import FusionConfig, load_fusion_config
 from modalities.gesture import GestureDetector, GestureDetectorOptions
+from modalities.voice.intent_from_transcript import configure_intent_rules
 from modalities.voice import VoskVoiceAdapter
-
-import sys
-import modalities.voice.intent_from_transcript
-import modalities.voice.speech_recognition_adapter as sra
-
-ift = sys.modules['modalities.voice.intent_from_transcript']
-
-# MONKEY-PATCH: Expand the toolkit's locked vocabulary!
-new_rules = list(ift._RULES)
-new_rules.extend([
-    ift._Rule("vocab1", ("create sphere", "create cube", "create cuboid", "create diamond")),
-    ift._Rule("vocab2", ("select", "drag", "move here", "rotate", "resize", "done", "insert", "restart", "delete")),
-])
-ift._RULES = tuple(new_rules)
-ift.COMMAND_GRAMMAR = tuple(phrase for r in ift._RULES for phrase in r.phrases)
-sra.COMMAND_GRAMMAR = ift.COMMAND_GRAMMAR
 
 from .math3d import create_cube, create_cuboid, create_sphere, create_diamond, rotate_3d, project_to_2d
 
@@ -53,8 +39,9 @@ class GeometricObject:
 class ShapePuzzleApp:
     app_id = "shape-puzzle"
 
-    def __init__(self, runtime: CollaborationRuntime):
+    def __init__(self, runtime: CollaborationRuntime, fusion_config: FusionConfig | None = None):
         self.runtime = runtime
+        self.fusion_config = fusion_config
         self.root = tk.Tk()
         self.root.title("3D-to-2D Shape Puzzle Game")
 
@@ -71,19 +58,16 @@ class ShapePuzzleApp:
         
         self.last_pointer_x = 0
         self.last_pointer_y = 0
-        self.last_palm_x = 0
-        self.last_palm_y = 0
-        
         self.mode = "idle" 
-        self.last_pinch_distance = None
         
         self.game_over_score = None
+        if self.fusion_config is not None and self.fusion_config.voice_phrases:
+            configure_intent_rules(self.fusion_config.voice_phrases)
 
         self._build_ui()
         self._spawn_targets()
         
         self.runtime.register_app(self)
-        self.runtime.bus.subscribe_events(self._on_runtime_event)
         
         self.root.bind("<n>", lambda _: self._create_object("sphere"))
         self.root.bind("<c>", lambda _: self._create_object("cube"))
@@ -193,194 +177,178 @@ class ShapePuzzleApp:
         self.log_var.set(f"Created solid '{shape_type}'")
 
     def handle_action(self, action: ActionPayload):
-        pass
+        self.root.after(0, lambda: self._apply_action(action))
 
-    def _on_runtime_event(self, event: BaseEvent):
-        # 1. ------------- VOICE PARSING -------------
-        if isinstance(event, VoiceEvent):
-            t = event.transcript.lower().strip()
-            if not t: return
-            self.log_var.set(f"Heard: '{t}'")
-            
-            # RESTART GAME STATE
-            if "restart" in t:
-                self.objects.clear()
-                self.object_counter = 0
-                self._spawn_targets() # Generates entirely new random board
-                self.game_over_score = None
+    def _apply_action(self, action: ActionPayload):
+        if action.type == ActionType.UPDATE_POINTER:
+            self._handle_pointer_update(action)
+        elif action.type == ActionType.CREATE_OBJECT and action.object_type:
+            self._create_object(action.object_type)
+        elif action.type == ActionType.SELECT_OBJECT:
+            if action.metadata.get("modality") != "gesture":
+                self._select_nearest_object(action.position)
+        elif action.type == ActionType.MOVE_OBJECT:
+            self._move_selected(action)
+        elif action.type == ActionType.SET_INTERACTION_MODE and action.mode:
+            self._set_mode(action.mode)
+        elif action.type == ActionType.DELETE_OBJECT:
+            self._delete_selected()
+        elif action.type == ActionType.INSERT_OBJECT:
+            self._insert_selected()
+        elif action.type == ActionType.RESET_APP:
+            self._restart_game()
+
+    def _handle_pointer_update(self, action: ActionPayload):
+        if action.position is None:
+            return
+
+        new_x = action.position.x * CANVAS_WIDTH
+        new_y = action.position.y * CANVAS_HEIGHT
+        delta_x = action.delta.dx * CANVAS_WIDTH if action.delta else new_x - self.last_pointer_x
+        delta_y = action.delta.dy * CANVAS_HEIGHT if action.delta else new_y - self.last_pointer_y
+        self.last_pointer_x = new_x
+        self.last_pointer_y = new_y
+
+        if self.selected_object_id and self.selected_object_id in self.objects:
+            obj = self.objects[self.selected_object_id]
+
+            if self.mode == "dragging":
+                obj.x += delta_x
+                obj.y += delta_y
+
+            elif self.mode == "rotating":
+                palm_delta = action.metadata.get("palm_delta") or {}
+                palm_delta_x = palm_delta.get("dx", 0.0) * CANVAS_WIDTH
+                palm_delta_y = palm_delta.get("dy", 0.0) * CANVAS_HEIGHT
+                if abs(palm_delta_x) > 2:
+                    obj.angle_y += palm_delta_x * 0.15
+                if abs(palm_delta_y) > 2:
+                    obj.angle_x -= palm_delta_y * 0.15
+
+            elif self.mode == "resizing":
+                pinch_delta = action.metadata.get("pinch_delta")
+                if pinch_delta is not None:
+                    obj.size = max(10, min(300, obj.size + pinch_delta * CANVAS_WIDTH * 0.8))
+
+        self.root.after(0, self.update_canvas)
+
+    def _select_nearest_object(self, position):
+        if position is not None:
+            self.last_pointer_x = position.x * CANVAS_WIDTH
+            self.last_pointer_y = position.y * CANVAS_HEIGHT
+
+        best_dist = 99999
+        best_id = None
+        for obj_id, obj in self.objects.items():
+            if obj.matched:
+                continue
+            dist = math.hypot(obj.x - self.last_pointer_x, obj.y - self.last_pointer_y)
+            if dist < 120 and dist < best_dist:
+                best_dist = dist
+                best_id = obj_id
+        if best_id:
+            self.selected_object_id = best_id
+            self.mode = "idle"
+            self.update_canvas()
+
+    def _move_selected(self, action: ActionPayload):
+        if not self.selected_object_id or self.selected_object_id not in self.objects:
+            return
+
+        obj = self.objects[self.selected_object_id]
+        if action.position is not None and action.delta is None:
+            obj.x = action.position.x * CANVAS_WIDTH
+            obj.y = action.position.y * CANVAS_HEIGHT
+            self.selected_object_id = None
+            self.mode = "idle"
+        elif action.delta is not None:
+            obj.x += action.delta.dx * CANVAS_WIDTH
+            obj.y += action.delta.dy * CANVAS_HEIGHT
+        self.update_canvas()
+
+    def _set_mode(self, mode: str):
+        if mode == "idle":
+            self.selected_object_id = None
+            self.mode = "idle"
+            self.log_var.set("UNSELECTED and DONE")
+            self.update_canvas()
+            return
+
+        if self.selected_object_id:
+            self.mode = mode
+            self.log_var.set(f"Mode: {mode}")
+            self.update_canvas()
+
+    def _delete_selected(self):
+        if self.selected_object_id and self.selected_object_id in self.objects:
+            del self.objects[self.selected_object_id]
+            self.selected_object_id = None
+            self.mode = "idle"
+            self.log_var.set("Shape deleted.")
+            self.update_canvas()
+
+    def _restart_game(self):
+        self.objects.clear()
+        self.object_counter = 0
+        self._spawn_targets()
+        self.game_over_score = None
+        self.selected_object_id = None
+        self.mode = "idle"
+        self.log_var.set("Game Restarted with new Targets!")
+        self.update_canvas()
+
+    def _insert_selected(self):
+        if not self.selected_object_id or self.selected_object_id not in self.objects:
+            return
+
+        obj = self.objects[self.selected_object_id]
+        best_hole = None
+        best_dist = 9999
+        for hole in self.targets.values():
+            if hole.filled:
+                continue
+            dist = math.hypot(obj.x - hole.x, obj.y - hole.y)
+            if dist < best_dist:
+                best_dist = dist
+                best_hole = hole
+
+        if best_hole and best_dist < 150:
+            if best_hole.obj_type == obj.obj_type:
+                final_score = self._score_insert(obj, best_hole, best_dist)
+                obj.matched = True
+                best_hole.filled = True
+                best_hole.score_text = final_score
                 self.selected_object_id = None
                 self.mode = "idle"
-                self.log_var.set("Game Restarted with new Targets!")
-                self.root.after(0, self.update_canvas)
+                self.log_var.set(f"INSERT SUCCESS! Metric Score: {final_score:.1f}%")
+                self._check_game_over()
+            else:
+                self.log_var.set("Wait, that is the wrong 3D geometry for this target!")
+        else:
+            self.log_var.set("No valid target underneath pointer to insert!")
+        self.update_canvas()
 
-            # CREATE
-            elif "create sphere" in t: self.root.after(0, self._create_object, "sphere")
-            elif "create cuboid" in t: self.root.after(0, self._create_object, "cuboid")
-            elif "create cube" in t: self.root.after(0, self._create_object, "cube")
-            elif "create diamond" in t: self.root.after(0, self._create_object, "diamond")
-            
-            # SELECT
-            elif "select" in t:
-                best_dist = 99999
-                best_id = None
-                for obj_id, obj in self.objects.items():
-                    if obj.matched: continue
-                    dist = math.hypot(obj.x - self.last_pointer_x, obj.y - self.last_pointer_y)
-                    if dist < 120 and dist < best_dist:
-                        best_dist = dist
-                        best_id = obj_id
-                if best_id:
-                    self.selected_object_id = best_id
-                    self.mode = "idle"
-                    self.root.after(0, self.update_canvas)
-                    
-            # MOVE HERE (Teleport)
-            elif "move here" in t:
-                if self.selected_object_id and self.selected_object_id in self.objects:
-                    obj = self.objects[self.selected_object_id]
-                    obj.x = self.last_pointer_x
-                    obj.y = self.last_pointer_y
-                    self.mode = "idle"
-                    self.selected_object_id = None
-                    self.root.after(0, self.update_canvas)
-            
-            # DRAG (Continuous Follow)
-            elif "drag" in t:
-                if self.selected_object_id:
-                    self.mode = "dragging"
-                    
-            # ROTATE
-            elif "rotate" in t:
-                if self.selected_object_id:
-                    self.mode = "rotating"
-                    
-            # RESIZE
-            elif "resize" in t:
-                if self.selected_object_id:
-                    self.mode = "resizing"
-                    
-            # DONE / UNSELECT
-            elif "done" in t:
-                self.selected_object_id = None
-                self.mode = "idle"
-                self.log_var.set("UNSELECTED and DONE")
-                self.root.after(0, self.update_canvas)
-                
-            # DELETE
-            elif "delete" in t:
-                if self.selected_object_id and self.selected_object_id in self.objects:
-                    del self.objects[self.selected_object_id]
-                    self.selected_object_id = None
-                    self.mode = "idle"
-                    self.log_var.set("Shape deleted.")
-                    self.root.after(0, self.update_canvas)
-                
-            # INSERT SCORING LOGIC WITH SYMMETRY METRICS
-            elif "insert" in t:
-                if self.selected_object_id and self.selected_object_id in self.objects:
-                    obj = self.objects[self.selected_object_id]
-                    
-                    best_hole = None
-                    best_dist = 9999
-                    for hole in self.targets.values():
-                        if hole.filled: continue
-                        dist = math.hypot(obj.x - hole.x, obj.y - hole.y)
-                        if dist < best_dist:
-                            best_dist = dist
-                            best_hole = hole
-                            
-                    if best_hole and best_dist < 150:
-                        # Match native type exactly!
-                        if best_hole.obj_type == obj.obj_type:
-                            pos_score = max(0.0, 100 - (best_dist * 0.7))
-                            
-                            # Scale ratio scoring: 80% size means exactly 80 points!
-                            ratio = min(obj.size, best_hole.size) / max(obj.size, best_hole.size)
-                            scale_score = ratio * 100.0
-                            
-                            # Rotational symmetry mapping (avoiding 0/90 degree illusion penalties)
-                            sym_x, sym_y = 360, 360
-                            if obj.obj_type == "cube": sym_x, sym_y = 90, 90
-                            elif obj.obj_type == "cuboid": sym_x, sym_y = 180, 180
-                            elif obj.obj_type == "diamond": sym_y = 90
-                            
-                            # Calculate shortest distance accounting for periodicity over symmetries
-                            dx = abs((round(obj.angle_x) % sym_x) - (round(best_hole.angle_x) % sym_x))
-                            dx = min(dx, sym_x - dx)
-                            dy = abs((round(obj.angle_y) % sym_y) - (round(best_hole.angle_y) % sym_y))
-                            dy = min(dy, sym_y - dy)
-                            
-                            total_angle_error = dx + dy
-                            
-                            # Sphere has no specific rotation
-                            if obj.obj_type == "sphere": rot_score = 100.0
-                            else: rot_score = max(0.0, 100 - (total_angle_error * 2.0))
-                                
-                            final_score = (pos_score + scale_score + rot_score) / 3.0
-                            
-                            obj.matched = True
-                            best_hole.filled = True
-                            best_hole.score_text = final_score
-                            
-                            # Leave the player's object physically locked EXACTLY where they spun/dropped it!
-                            self.selected_object_id = None
-                            self.mode = "idle"
-                            
-                            self.log_var.set(f"INSERT SUCCESS! Metric Score: {final_score:.1f}%")
-                            self.root.after(0, self._check_game_over)
-                        else:
-                            self.log_var.set("Wait, that is the wrong 3D geometry for this target!")
-                    else:
-                        self.log_var.set("No valid target underneath pointer to insert!")
-                        
-                self.root.after(0, self.update_canvas)
+    def _score_insert(self, obj, best_hole, best_dist):
+        pos_score = max(0.0, 100 - (best_dist * 0.7))
+        ratio = min(obj.size, best_hole.size) / max(obj.size, best_hole.size)
+        scale_score = ratio * 100.0
 
-        # 2. ------------- GESTURE PARSING -------------
-        elif isinstance(event, GestureEvent):
-            palm_x = event.position.x * CANVAS_WIDTH
-            palm_y = event.position.y * CANVAS_HEIGHT
-            palm_delta_x = palm_x - self.last_palm_x
-            palm_delta_y = palm_y - self.last_palm_y
-            self.last_palm_x = palm_x
-            self.last_palm_y = palm_y
+        sym_x, sym_y = 360, 360
+        if obj.obj_type == "cube":
+            sym_x, sym_y = 90, 90
+        elif obj.obj_type == "cuboid":
+            sym_x, sym_y = 180, 180
+        elif obj.obj_type == "diamond":
+            sym_y = 90
 
-            pointer_pos = event.position
-            if event.landmarks and len(event.landmarks) > 8:
-                pointer_pos = event.landmarks[8]
-                
-            if pointer_pos:
-                new_x = pointer_pos.x * CANVAS_WIDTH
-                new_y = pointer_pos.y * CANVAS_HEIGHT
-                delta_x = new_x - self.last_pointer_x
-                delta_y = new_y - self.last_pointer_y
-                self.last_pointer_x = new_x
-                self.last_pointer_y = new_y
-                
-                if self.selected_object_id and self.selected_object_id in self.objects:
-                    obj = self.objects[self.selected_object_id]
-                    
-                    if self.mode == "dragging":
-                        obj.x += delta_x
-                        obj.y += delta_y
-                    
-                    elif self.mode == "rotating":
-                        if abs(palm_delta_x) > 2: obj.angle_y += palm_delta_x * 0.15
-                        if abs(palm_delta_y) > 2: obj.angle_x -= palm_delta_y * 0.15
-                        
-                    elif self.mode == "resizing":
-                        if event.landmarks and len(event.landmarks) > 8:
-                            thumb = event.landmarks[4]
-                            index = event.landmarks[8]
-                            dist = math.hypot((thumb.x - index.x)*CANVAS_WIDTH, (thumb.y - index.y)*CANVAS_HEIGHT)
-                            if self.last_pinch_distance is not None:
-                                pinch_delta = dist - self.last_pinch_distance
-                                obj.size = max(10, min(300, obj.size + pinch_delta * 0.8))
-                            self.last_pinch_distance = dist
-                
-                if self.mode != "resizing":
-                    self.last_pinch_distance = None
+        dx = abs((round(obj.angle_x) % sym_x) - (round(best_hole.angle_x) % sym_x))
+        dx = min(dx, sym_x - dx)
+        dy = abs((round(obj.angle_y) % sym_y) - (round(best_hole.angle_y) % sym_y))
+        dy = min(dy, sym_y - dy)
 
-                self.root.after(0, self.update_canvas)
+        total_angle_error = dx + dy
+        rot_score = 100.0 if obj.obj_type == "sphere" else max(0.0, 100 - (total_angle_error * 2.0))
+        return (pos_score + scale_score + rot_score) / 3.0
 
     def _check_game_over(self):
         filled_holes = [t for t in self.targets.values() if t.filled]
@@ -499,8 +467,10 @@ class ShapePuzzleApp:
         self.root.destroy()
 
 def main():
-    runtime = CollaborationRuntime()
-    app = ShapePuzzleApp(runtime)
+    config_path = Path(__file__).with_name("fusion-3d.conf")
+    fusion_config = load_fusion_config(config_path)
+    runtime = CollaborationRuntime(fusion_config=fusion_config)
+    app = ShapePuzzleApp(runtime, fusion_config=fusion_config)
     app.root.mainloop()
 
 if __name__ == "__main__":

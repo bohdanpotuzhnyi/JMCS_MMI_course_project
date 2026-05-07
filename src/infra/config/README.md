@@ -7,3 +7,6 @@ Examples:
 - model selection
 - confidence thresholds
 - fusion timing windows
+
+The planned configuration schema is documented in
+[`docs/configuration.md`](../../../docs/configuration.md).

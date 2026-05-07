@@ -1,0 +1,49 @@
+@startuml
+title Runtime Flow - From Modalities to App State
+
+skinparam backgroundColor white
+skinparam shadowing false
+
+actor User
+participant "GestureDetector" as Gesture
+participant "VoskVoiceAdapter" as Voice
+participant "CollaborationRuntime" as Runtime
+participant "EventBus" as Bus
+participant "FusionEngine" as Fusion
+participant "InteractionContextStore" as Context
+participant "ApplicationRouter" as Router
+participant "Active App" as App
+
+== Gesture path ==
+User -> Gesture : perform gesture
+Gesture -> Runtime : handle_gesture(GestureEvent)
+Runtime -> Bus : publish_event(event)
+Bus -> App : optional event subscribers\n(logs / custom logic)
+Runtime -> Fusion : handle_gesture_event(event)
+Fusion -> Context : remember_gesture(event)
+Fusion --> Runtime : ActionPayload or None
+alt action emitted
+  Runtime -> Bus : publish_action(action)
+  Bus -> App : optional action subscribers
+  Runtime -> Router : route(action)
+  Router -> App : handle_action(action)
+end
+
+== Voice path ==
+User -> Voice : speak command
+Voice -> Runtime : handle_voice(VoiceEvent)
+Runtime -> Bus : publish_event(event)
+Bus -> App : optional event subscribers
+Runtime -> Fusion : handle_voice_event(event)
+Fusion -> Context : remember_voice(event)
+Fusion -> Context : read last_gesture / last_point
+Fusion --> Runtime : ActionPayload or None
+alt fused into canonical action
+  Runtime -> Bus : publish_action(action)
+  Runtime -> Router : route(action)
+  Router -> App : handle_action(action)
+else no supported intent
+  Runtime --> User : no routed action
+end
+
+@enduml

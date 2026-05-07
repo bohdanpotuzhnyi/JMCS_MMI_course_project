@@ -1,0 +1,118 @@
+@startuml
+title Core Implementation View
+
+skinparam backgroundColor white
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+
+package "contracts" {
+  class GestureEvent
+  class VoiceEvent
+  class ActionPayload
+  enum GestureType
+  enum ActionType
+}
+
+package "core" {
+  class CollaborationRuntime {
+    +bus: EventBus
+    +fusion: FusionEngine
+    +router: ApplicationRouter
+    +register_app(app)
+    +set_active_app(app_id)
+    +handle_gesture(event)
+    +handle_voice(event)
+  }
+
+  class EventBus {
+    +subscribe_events(handler)
+    +subscribe_actions(handler)
+    +publish_event(event)
+    +publish_action(action)
+  }
+
+  class FusionEngine {
+    -_context: InteractionContextStore
+    +handle_gesture_event(event)
+    +handle_voice_event(event)
+  }
+
+  class InteractionContextStore {
+    +state: InteractionContext
+    +remember_gesture(event)
+    +remember_voice(event)
+  }
+
+  class InteractionContext {
+    +selected_target_id
+    +last_point_position
+    +last_gesture
+    +last_voice
+    +pending_clarification
+    +recent_event_ids
+  }
+
+  interface ApplicationController {
+    +app_id
+    +handle_action(action)
+  }
+
+  class ApplicationRouter {
+    +register(app)
+    +set_active_app(app_id)
+    +route(action)
+  }
+}
+
+package "apps" {
+  class DemoCanvasApp
+  class ShapePuzzleApp
+  class LoggingDemoApp
+}
+
+package "modalities" {
+  class GestureDetector
+  class VoskVoiceAdapter
+}
+
+GestureEvent --> GestureType
+ActionPayload --> ActionType
+
+CollaborationRuntime *-- EventBus
+CollaborationRuntime *-- FusionEngine
+CollaborationRuntime *-- ApplicationRouter
+
+FusionEngine *-- InteractionContextStore
+InteractionContextStore *-- InteractionContext
+
+CollaborationRuntime ..> GestureEvent
+CollaborationRuntime ..> VoiceEvent
+CollaborationRuntime ..> ActionPayload
+
+ApplicationRouter ..> ApplicationController
+DemoCanvasApp ..|> ApplicationController
+ShapePuzzleApp ..|> ApplicationController
+LoggingDemoApp ..|> ApplicationController
+
+GestureDetector ..> GestureEvent : emits
+VoskVoiceAdapter ..> VoiceEvent : emits
+
+DemoCanvasApp ..> CollaborationRuntime
+ShapePuzzleApp ..> CollaborationRuntime
+
+note right of FusionEngine
+Implemented rules:
+- swipe gestures -> move actions
+- point/pinch/grab -> select
+- release -> deselect
+- open_palm/fist -> menu toggle
+- voice left/right/up/down -> move
+- voice rotate-left/right -> rotate
+end note
+
+note bottom of ShapePuzzleApp
+The game also consumes raw runtime events directly,
+so not all behavior flows only through routed actions.
+end note
+
+@enduml
