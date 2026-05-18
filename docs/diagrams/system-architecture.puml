@@ -62,15 +62,10 @@ EventBus --> DemoApp : subscribe_events/actions\n(logging + UI feedback)
 EventBus --> ShapePuzzle : subscribe_events\n(custom raw event logic)
 
 note right of ShapePuzzle
-Current implementation is hybrid:
-- registered as a routed app
-- also listens to raw BaseEvent objects
-- monkey-patches voice grammar for game commands
-end note
-
-note bottom of VirtualWorkspace
-Documented in the repo, but no concrete app module
-is wired into the runtime yet.
+3D interaction behavior is now shared:
+- fusion + mapping logic lives in the core
+- the app keeps puzzle state, scoring, and rendering
+- canonical actions still enter through handle_action()
 end note
 
 @enduml

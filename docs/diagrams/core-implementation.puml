@@ -101,18 +101,15 @@ DemoCanvasApp ..> CollaborationRuntime
 ShapePuzzleApp ..> CollaborationRuntime
 
 note right of FusionEngine
-Implemented rules:
-- swipe gestures -> move actions
-- point/pinch/grab -> select
-- release -> deselect
-- open_palm/fist -> menu toggle
-- voice left/right/up/down -> move
-- voice rotate-left/right -> rotate
+Shared core now owns:
+- 3D interaction mode logic
+- gesture and voice action mapping
+- recent gesture + voice fusion
 end note
 
 note bottom of ShapePuzzleApp
-The game also consumes raw runtime events directly,
-so not all behavior flows only through routed actions.
+The app focuses on puzzle state, scoring, and rendering.
+3D interaction behavior is delegated to the shared core.
 end note
 
 @enduml

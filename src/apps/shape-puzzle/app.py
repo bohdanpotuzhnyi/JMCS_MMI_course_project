@@ -1,6 +1,11 @@
 import tkinter as tk
+import csv
+import datetime as dt
 import math
 import random
+import sys
+import time
+import uuid
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -14,7 +19,11 @@ from modalities.gesture import GestureDetector, GestureDetectorOptions
 from modalities.voice.intent_from_transcript import configure_intent_rules
 from modalities.voice import VoskVoiceAdapter
 
-from .math3d import create_cube, create_cuboid, create_sphere, create_diamond, rotate_3d, project_to_2d
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from math3d import create_cube, create_cuboid, create_sphere, create_diamond, rotate_3d, project_to_2d
+else:
+    from .math3d import create_cube, create_cuboid, create_sphere, create_diamond, rotate_3d, project_to_2d
 
 CANVAS_WIDTH = 1000
 CANVAS_HEIGHT = 700
@@ -38,6 +47,8 @@ class GeometricObject:
 
 class ShapePuzzleApp:
     app_id = "shape-puzzle"
+    show_input_controls = True
+    evaluation_condition = "multimodal"
 
     def __init__(self, runtime: CollaborationRuntime, fusion_config: FusionConfig | None = None):
         self.runtime = runtime
@@ -61,6 +72,12 @@ class ShapePuzzleApp:
         self.mode = "idle" 
         
         self.game_over_score = None
+        self.session_id = uuid.uuid4().hex[:10]
+        self._metrics_path = self._default_metrics_path()
+        self._puzzle_started_at = time.perf_counter()
+        self._last_success_at = self._puzzle_started_at
+        self._insert_attempt_count = 0
+        self._successful_insert_count = 0
         if self.fusion_config is not None and self.fusion_config.voice_phrases:
             configure_intent_rules(self.fusion_config.voice_phrases)
 
@@ -76,12 +93,16 @@ class ShapePuzzleApp:
         
         self.update_canvas()
 
+    def _default_metrics_path(self) -> Path:
+        return Path(__file__).resolve().parents[3] / "evaluation" / "human_eval" / "data" / "raw" / "shape_puzzle_metrics.csv"
+
     def _build_ui(self):
         top_frame = tk.Frame(self.root)
         top_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        tk.Button(top_frame, text="Start Game Engine", command=self.start_inputs, bg="#44ff44", font=("Arial", 10, "bold")).pack(side=tk.LEFT)
-        tk.Button(top_frame, text="Stop Stream", command=self.stop_inputs).pack(side=tk.LEFT)
+        if self.show_input_controls:
+            tk.Button(top_frame, text="Start Game Engine", command=self.start_inputs, bg="#44ff44", font=("Arial", 10, "bold")).pack(side=tk.LEFT)
+            tk.Button(top_frame, text="Stop Stream", command=self.stop_inputs).pack(side=tk.LEFT)
         
         self.log_var = tk.StringVar(value="Waiting to start...")
         tk.Label(top_frame, textvariable=self.log_var, fg="#00ccff", bg="#000000", font=("Arial", 12, "bold")).pack(side=tk.LEFT, padx=30)
@@ -96,6 +117,18 @@ class ShapePuzzleApp:
         self.canvas.create_text(
             CANVAS_WIDTH // 2, 80, text="Say 'Insert' to lock your piece into the matched Cyan 3D Silhouette!", 
             fill="#ffcc00", font=("Arial", 12, "bold"), tags="static", justify="center"
+        )
+
+    def _set_instruction_text(self, text: str) -> None:
+        self.canvas.delete("instructions")
+        self.canvas.create_text(
+            CANVAS_WIDTH // 2,
+            80,
+            text=text,
+            fill="#ffcc00",
+            font=("Arial", 12, "bold"),
+            tags=("static", "instructions"),
+            justify="center",
         )
 
     def _spawn_targets(self):
@@ -294,11 +327,17 @@ class ShapePuzzleApp:
         self.game_over_score = None
         self.selected_object_id = None
         self.mode = "idle"
+        self.session_id = uuid.uuid4().hex[:10]
+        self._puzzle_started_at = time.perf_counter()
+        self._last_success_at = self._puzzle_started_at
+        self._insert_attempt_count = 0
+        self._successful_insert_count = 0
         self.log_var.set("Game Restarted with new Targets!")
         self.update_canvas()
 
     def _insert_selected(self):
         if not self.selected_object_id or self.selected_object_id not in self.objects:
+            self._record_insert_attempt(success=False, failure_reason="no_selected_object")
             return
 
         obj = self.objects[self.selected_object_id]
@@ -315,18 +354,132 @@ class ShapePuzzleApp:
         if best_hole and best_dist < 150:
             if best_hole.obj_type == obj.obj_type:
                 final_score = self._score_insert(obj, best_hole, best_dist)
+                now = time.perf_counter()
+                self._successful_insert_count += 1
+                elapsed_since_start = now - self._puzzle_started_at
+                elapsed_since_previous = now - self._last_success_at
+                self._last_success_at = now
                 obj.matched = True
                 best_hole.filled = True
                 best_hole.score_text = final_score
                 self.selected_object_id = None
                 self.mode = "idle"
+                self._record_insert_attempt(
+                    success=True,
+                    obj=obj,
+                    target=best_hole,
+                    score=final_score,
+                    distance=best_dist,
+                    input_index=self._successful_insert_count,
+                    elapsed_since_start=elapsed_since_start,
+                    elapsed_since_previous=elapsed_since_previous,
+                )
                 self.log_var.set(f"INSERT SUCCESS! Metric Score: {final_score:.1f}%")
                 self._check_game_over()
             else:
+                self._record_insert_attempt(
+                    success=False,
+                    failure_reason="wrong_shape",
+                    obj=obj,
+                    target=best_hole,
+                    distance=best_dist,
+                )
                 self.log_var.set("Wait, that is the wrong 3D geometry for this target!")
         else:
+            self._record_insert_attempt(
+                success=False,
+                failure_reason="no_target_in_range",
+                obj=obj,
+                target=best_hole,
+                distance=best_dist if best_hole else None,
+            )
             self.log_var.set("No valid target underneath pointer to insert!")
         self.update_canvas()
+
+    def _record_insert_attempt(
+        self,
+        *,
+        success: bool,
+        failure_reason: str = "",
+        obj: GeometricObject | None = None,
+        target: GeometricObject | None = None,
+        score: float | None = None,
+        distance: float | None = None,
+        input_index: int | None = None,
+        elapsed_since_start: float | None = None,
+        elapsed_since_previous: float | None = None,
+    ) -> None:
+        self._insert_attempt_count += 1
+        row = {
+            "timestamp": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+            "session_id": self.session_id,
+            "condition": self.evaluation_condition,
+            "event": "insert_attempt",
+            "attempt_index": self._insert_attempt_count,
+            "input_index": input_index or "",
+            "success": "yes" if success else "no",
+            "failure_reason": failure_reason,
+            "object_id": obj.obj_id if obj else "",
+            "object_type": obj.obj_type if obj else "",
+            "target_id": target.obj_id if target else "",
+            "target_type": target.obj_type if target else "",
+            "elapsed_since_start_s": f"{elapsed_since_start:.3f}" if elapsed_since_start is not None else "",
+            "elapsed_since_previous_success_s": f"{elapsed_since_previous:.3f}" if elapsed_since_previous is not None else "",
+            "accuracy_score_percent": f"{score:.3f}" if score is not None else "",
+            "distance_px": f"{distance:.3f}" if distance is not None else "",
+        }
+        self._append_metrics_row(row)
+
+    def _record_game_completed(self, average_score: float, total_time: float) -> None:
+        row = {
+            "timestamp": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
+            "session_id": self.session_id,
+            "condition": self.evaluation_condition,
+            "event": "game_completed",
+            "attempt_index": self._insert_attempt_count,
+            "input_index": self._successful_insert_count,
+            "success": "yes",
+            "failure_reason": "",
+            "object_id": "",
+            "object_type": "",
+            "target_id": "",
+            "target_type": "",
+            "elapsed_since_start_s": f"{total_time:.3f}",
+            "elapsed_since_previous_success_s": "",
+            "accuracy_score_percent": f"{average_score:.3f}",
+            "distance_px": "",
+        }
+        self._append_metrics_row(row)
+
+    def _append_metrics_row(self, row: dict[str, object]) -> None:
+        fieldnames = [
+            "timestamp",
+            "session_id",
+            "condition",
+            "event",
+            "attempt_index",
+            "input_index",
+            "success",
+            "failure_reason",
+            "object_id",
+            "object_type",
+            "target_id",
+            "target_type",
+            "elapsed_since_start_s",
+            "elapsed_since_previous_success_s",
+            "accuracy_score_percent",
+            "distance_px",
+        ]
+        try:
+            self._metrics_path.parent.mkdir(parents=True, exist_ok=True)
+            needs_header = not self._metrics_path.exists() or self._metrics_path.stat().st_size == 0
+            with self._metrics_path.open("a", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                if needs_header:
+                    writer.writeheader()
+                writer.writerow(row)
+        except OSError as exc:
+            self.log_var.set(f"Could not write metrics: {exc}")
 
     def _score_insert(self, obj, best_hole, best_dist):
         pos_score = max(0.0, 100 - (best_dist * 0.7))
@@ -356,6 +509,8 @@ class ShapePuzzleApp:
             total = sum(t.score_text for t in self.targets.values() if t.score_text is not None)
             average = total / len(self.targets)
             self.game_over_score = average
+            total_time = time.perf_counter() - self._puzzle_started_at
+            self._record_game_completed(average, total_time)
             self.log_var.set(f"VICTORY! OVERALL SCORE: {average:.1f}%. Say 'RESTART' to play again!")
 
     def update_canvas(self):

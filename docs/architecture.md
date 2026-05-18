@@ -2,7 +2,8 @@
 
 ## Overview
 
-This project is structured as a reusable multimodal interaction toolkit with two demonstration applications built on top of a shared core.
+This project is structured as a reusable multimodal interaction toolkit with
+demonstration applications built on top of a shared core.
 
 The architecture is local-first:
 
@@ -11,12 +12,14 @@ The architecture is local-first:
 - a collaboration core fuses both modalities into canonical actions
 - demo applications consume those actions through a stable application API
 
-This separation keeps modality logic, fusion logic, and app-specific logic independent.
+This separation keeps modality logic, fusion logic, and app-specific logic
+independent.
 
 ## Implemented Architecture Diagrams
 
-The following diagrams were generated from the current repository structure and runtime wiring.
-They describe the implementation as it exists now, including the places where the shape puzzle app bypasses part of the ideal app-facing action flow.
+The following diagrams were generated from the current repository structure and
+runtime wiring.
+They describe the implementation as it exists now.
 
 ### 1. System Architecture
 
@@ -53,7 +56,7 @@ Responsibilities:
 - camera input capture
 - hand landmark tracking
 - gesture recognition
-- 2D/3D pointer or hand pose estimation
+- normalized pointer and hand pose estimation
 - normalized gesture event emission
 
 Input:
@@ -71,7 +74,7 @@ Responsibilities:
 - microphone input capture
 - speech-to-text
 - intent extraction
-- slot extraction for phrases such as "move this here" or "rotate left"
+- configurable phrase-to-intent mapping
 - normalized voice event emission
 
 Input:
@@ -87,19 +90,21 @@ Output:
 Responsibilities:
 
 - receive modality events from adapters
-- synchronize events in time
-- resolve cross-modal references such as "this" and "there"
-- track interaction context
-- map multimodal evidence to canonical actions
-- handle ambiguity and confirmation flow
+- publish events and actions on an in-process `EventBus`
+- track short-lived multimodal context in `InteractionContextStore`
+- map gesture and voice input to canonical `ActionPayload` objects
+- fuse recent voice and gesture input within a temporal window
+- keep the 3D interaction and mapping logic in the shared core instead of in
+  the shape puzzle app
 
 Submodules:
 
-- `event-bus`
-- `context-store`
-- `fusion-engine`
-- `intent-resolver`
-- `ambiguity-handler`
+- `runtime`
+- `event_bus`
+- `context_store`
+- `fusion_engine`
+- `application_router`
+- `infra.config.fusion_config`
 
 ### 4. Application Layer
 
@@ -112,107 +117,89 @@ Responsibilities:
 
 Apps:
 
+- `demo_app`
 - `shape-puzzle`
-- `virtual-workspace`
+- `shape-puzzle.mouse_keyboard_app`
 
 ## Data Flow
 
 1. The gesture adapter emits gesture events.
 2. The voice adapter emits voice events.
-3. The event bus timestamps and forwards all events.
+3. The runtime publishes raw events to the bus for optional observers.
 4. The fusion engine evaluates events in a temporal window.
-5. The intent resolver converts fused evidence into canonical actions.
-6. The active application consumes those actions and updates its state.
+5. The fusion engine converts modality evidence into canonical actions.
+6. The runtime publishes those actions and routes them to the active app.
 7. The UI renders scene changes and system feedback.
 
 ## Canonical Contracts
 
 ### Gesture Event
 
-```ts
-export type GestureEvent = {
-  type: "gesture";
-  timestamp: number;
-  hand: "left" | "right";
-  gesture: "point" | "grab" | "release" | "rotate" | "pinch";
-  position2d?: { x: number; y: number };
-  position3d?: { x: number; y: number; z: number };
-  targetObjectId?: string;
-  confidence: number;
-};
+```python
+class GestureEvent(BaseEvent):
+    source: Literal[ModalitySource.GESTURE]
+    gesture: GestureType
+    position: NormalizedPosition
+    landmarks: Optional[list[NormalizedPosition]] = None
+    hand: Optional[Literal["left", "right", "unknown"]] = None
 ```
 
 ### Voice Event
 
-```ts
-export type VoiceEvent = {
-  type: "voice";
-  timestamp: number;
-  transcript: string;
-  intent?: "select" | "move" | "rotate" | "delete" | "confirm" | "cancel";
-  slots?: Record<string, string | number>;
-  confidence: number;
-};
+```python
+class VoiceEvent(BaseEvent):
+    source: Literal[ModalitySource.VOICE]
+    transcript: str
+    is_final: bool
+    intent: Optional[str] = None
 ```
 
 ### Canonical Action
 
-```ts
-export type CanonicalAction =
-  | { type: "select"; objectId: string }
-  | { type: "move"; objectId: string; target: { x: number; y: number; z: number } }
-  | { type: "rotate"; objectId: string; delta: number }
-  | { type: "delete"; objectId: string }
-  | { type: "confirm" }
-  | { type: "cancel" };
+```python
+class ActionPayload(BaseModel):
+    type: ActionType
+    target_id: Optional[str] = None
+    delta: Optional[Delta] = None
+    position: Optional[Position] = None
+    scale: Optional[float] = None
+    rotation: Optional[float] = None
+    object_type: Optional[str] = None
+    mode: Optional[str] = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    source_events: list[str] = Field(default_factory=list)
 ```
 
 ## Fusion Strategy
 
-The first implementation should use a rule-based fusion engine.
-
-Why:
-
-- easier to explain in the report
-- easier to debug during live demos
-- easier to evaluate systematically
-- a better fit for the project scope than an LLM-dependent pipeline
-
-Suggested rule set:
-
-- maintain a short temporal fusion window for recent speech and gesture events
-- allow deictic language such as "this", "that", and "there"
-- prefer current pointing targets when speech references an object implicitly
-- require confirmation when multiple objects match with similar confidence
-- preserve the most recent selected object as part of context
+The current implementation uses a rule-based fusion engine. The important
+architectural point is that the 3D interaction logic used by the shape puzzle is
+now handled in the shared core, not inside the puzzle app itself.
 
 ## Context Model
 
 The context store should track:
 
-- selected object
-- pointed object
-- recent target position
-- last confirmed action
+- selected target id
+- recent point position
+- last gesture
+- last voice event
 - pending ambiguity or clarification state
-- modality confidence values
+- recent event ids
 
-This allows multi-turn interactions such as:
-
-- point at object + say "select this"
-- grab object + say "move here"
-- say "rotate left" after selection
+In the current implementation, the most important practical use is that a voice
+command can reuse the most recent gesture-derived position.
 
 ## Error Handling
 
-The system should degrade safely when inputs are uncertain.
+The system should degrade safely when inputs are uncertain or unsupported.
 
 Examples:
 
-- no object under pointer: ask the user to point again
-- low speech confidence: repeat or request confirmation
-- conflicting gesture and speech targets: prefer clarification over silent execution
-- missing destination for "move this there": wait for or request a placement gesture
+- confidence thresholds can suppress low-quality voice or gesture events
+- include and exclude config lists can disable unsupported commands
+- unsupported voice intents simply produce no routed action
+- apps remain responsible for domain-level feedback such as "no target in range"
 
 ## License and Deployment Implications
 
@@ -224,15 +211,12 @@ Implications for architecture:
 - keep network services optional and replaceable
 - if the system is exposed as a network service, corresponding source obligations apply to the deployed modified version
 
-For the course project, a local desktop setup is the simplest and clearest option.
+For the course project, a local desktop setup remains the clearest option.
 
 ## Suggested Milestones
 
-1. Define interaction scenarios and supported commands.
-2. Implement normalized event contracts.
-3. Build gesture adapter with a basic hand-tracking pipeline.
-4. Build voice adapter with speech-to-text and simple intent extraction.
-5. Implement rule-based fusion and context tracking.
-6. Integrate the shape puzzle app.
-7. Integrate the virtual workspace app.
-8. Add evaluation instrumentation and user testing tasks.
+1. Extend the action vocabulary only through shared contracts.
+2. Keep app logic behind `handle_action()` boundaries.
+3. Add new configs instead of hard-coding per-app voice vocabularies.
+4. Add browser or network-facing artifacts as separate deployment targets.
+5. Continue instrumentation and evaluation on top of the canonical action flow.
