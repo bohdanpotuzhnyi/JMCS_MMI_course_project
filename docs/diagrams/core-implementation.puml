@@ -1,9 +1,11 @@
 @startuml
-title Core Implementation View
-
-skinparam backgroundColor white
+skinparam backgroundColor transparent
 skinparam shadowing false
 skinparam classAttributeIconSize 0
+skinparam defaultFontSize 22
+skinparam titleFontSize 26
+skinparam packageTitleFontSize 18
+skinparam noteFontSize 16
 
 package "contracts" {
   class GestureEvent
@@ -65,9 +67,8 @@ package "core" {
 }
 
 package "apps" {
-  class DemoCanvasApp
+  class VirtualWorkspaceSandbox
   class ShapePuzzleApp
-  class LoggingDemoApp
 }
 
 package "modalities" {
@@ -90,26 +91,25 @@ CollaborationRuntime ..> VoiceEvent
 CollaborationRuntime ..> ActionPayload
 
 ApplicationRouter ..> ApplicationController
-DemoCanvasApp ..|> ApplicationController
+VirtualWorkspaceSandbox ..|> ApplicationController
 ShapePuzzleApp ..|> ApplicationController
-LoggingDemoApp ..|> ApplicationController
 
 GestureDetector ..> GestureEvent : emits
 VoskVoiceAdapter ..> VoiceEvent : emits
 
-DemoCanvasApp ..> CollaborationRuntime
+VirtualWorkspaceSandbox ..> CollaborationRuntime
 ShapePuzzleApp ..> CollaborationRuntime
 
-note right of FusionEngine
-Shared core now owns:
-- 3D interaction mode logic
-- gesture and voice action mapping
-- recent gesture + voice fusion
-end note
+' note right of FusionEngine
+' Shared core now owns:
+' - 3D interaction mode logic
+' - gesture and voice action mapping
+' - recent gesture + voice fusion
+' end note
 
-note bottom of ShapePuzzleApp
-The app focuses on puzzle state, scoring, and rendering.
-3D interaction behavior is delegated to the shared core.
-end note
+' note bottom of ShapePuzzleApp
+' The app focuses on puzzle state, scoring, and rendering.
+' 3D interaction behavior is delegated to the shared core.
+' end note
 
 @enduml
