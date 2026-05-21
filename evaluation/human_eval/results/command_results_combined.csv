@@ -1,0 +1,86 @@
+participant_id,command_number,command_category,requested_speech_command,requested_gesture_action,screen_showed_or_heard,worked_correctly,worked_score,error_type,has_error,error_description,included_in_common_analysis
+P1,1,create_cube,Create cube,point at a point on the screen,created solid 'cube',yes,1,none,FALSE,none,TRUE
+P1,2,create_sphere,create sphere,point at a point on the screen,created solid 'sphere',yes,1,none,FALSE,none,TRUE
+P1,3,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P1,4,drag,drag,drag their figure down,drag drag,partially,0.5,fusion,TRUE,Recognized the first drag call but did not respond to it,TRUE
+P1,5,done,done,none,UNSELECTED and DONE,yes,1,none,FALSE,none,FALSE
+P1,6,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P1,7,move_here,move here,point to destination of movement,move here,yes,1,none,FALSE,none,FALSE
+P1,8,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P1,9,rotate,rotate,do rotation motion,rotate,no,0,recognition,TRUE,only responded after saying 'rotate' a second time,TRUE
+P2,1,create_cube,Create cube,point at a point on the screen,created solid 'cube',yes,1,none,FALSE,none,TRUE
+P2,2,create_sphere,create sphere,point at a point on the screen,created solid 'sphere',yes,1,none,FALSE,none,TRUE
+P2,3,select,select,point at the sphere,select,no,0,recognition,TRUE,did not detect the initial select. Had to say twice.,TRUE
+P2,4,drag,drag,drag their figure down,drag,yes,1,none,FALSE,none,TRUE
+P2,5,done,done,none,UNSELECTED and DONE,yes,1,none,FALSE,none,FALSE
+P2,6,select,select,point at the sphere,select,no,0,recognition,TRUE,did not detect the initial select. Had to say twice.,TRUE
+P2,7,move_here,move here,point to destination of movement,move here,yes,1,none,FALSE,none,FALSE
+P2,8,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P2,9,rotate,rotate,do rotation motion,rotate,yes,1,none,FALSE,none,TRUE
+P3,1,create_cube,Create cube,point at a point on the screen,created solid 'cube',yes,1,none,FALSE,none,TRUE
+P3,2,create_sphere,create sphere,point at a point on the screen,created solid 'sphere',yes,1,none,FALSE,none,TRUE
+P3,3,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P3,4,drag,drag,drag their figure down,drag drag,partially,0.5,fusion,TRUE,Recognized the first drag call but did not respond to it,TRUE
+P3,5,done,done,none,UNSELECTED and DONE,yes,1,none,FALSE,none,FALSE
+P3,6,select,select,point at the sphere,select,no,0,recognition,TRUE,did not detect the initial select. Had to say twice,TRUE
+P3,7,move_here,move here,point to destination of movement,move here,yes,1,none,FALSE,none,FALSE
+P3,8,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P3,9,rotate,rotate,do rotation motion,rotate,yes,1,none,FALSE,none,TRUE
+P4,1,create_cube,Create cube,point at a point on the screen,created solid 'cube',yes,1,none,FALSE,none,TRUE
+P4,2,create_sphere,create sphere,point at a point on the screen,created solid 'sphere',yes,1,none,FALSE,none,TRUE
+P4,3,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P4,4,drag,drag,drag their figure down,drag drag,yes,1,fusion,TRUE,none,TRUE
+P4,5,done,done,none,UNSELECTED and DONE,yes,1,none,FALSE,none,FALSE
+P4,6,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P4,7,move_here,move here,point to destination of movement,move here,yes,1,none,FALSE,none,FALSE
+P4,8,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P4,9,rotate,rotate,do rotation motion,rotate,yes,1,fusion,TRUE,system did not initially respond to palm movement,TRUE
+P5,1,create_cube,Create cube,point at a point on the screen,created solid 'cube',yes,1,none,FALSE,none,TRUE
+P5,2,create_sphere,create sphere,point at a point on the screen,created solid 'sphere',yes,1,none,FALSE,none,TRUE
+P5,3,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P5,4,drag,drag,drag their figure down,drag drag,yes,1,none,FALSE,none,TRUE
+P5,5,done,done,none,UNSELECTED and DONE,yes,1,none,FALSE,none,FALSE
+P5,6,select,select,point at the sphere,select,no,0,none,FALSE,none,TRUE
+P5,7,move_here,move here,point to destination of movement,move here,yes,1,none,FALSE,none,FALSE
+P5,8,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P5,9,rotate,rotate,do rotation motion,rotate,yes,1,none,FALSE,none,TRUE
+P6,1,create_cube,Create cube,point at a point on the screen,created solid 'cube',yes,1,none,FALSE,none,TRUE
+P6,2,create_sphere,create sphere,point at a point on the screen,created solid 'sphere',yes,1,none,FALSE,none,TRUE
+P6,3,select,select,point at the sphere,select,no,0,recognition,TRUE,did not detect the initial select. Had to say twice.,TRUE
+P6,4,drag,drag,drag their figure down,drag,yes,1,none,FALSE,none,TRUE
+P6,5,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P6,6,resize,resize,change in the size,object size adjusted,yes,1,none,FALSE,none,FALSE
+P6,7,select,select,point at the sphere,select,no,0,recognition,TRUE,did not detect the initial select. Had to say twice.,TRUE
+P6,8,rotate,rotate,do rotation motion,rotate,yes,1,none,FALSE,none,TRUE
+P7,1,create_cube,Create cube,point at a point on the screen,created solid 'cube',yes,1,none,FALSE,none,TRUE
+P7,2,create_sphere,create sphere,point at a point on the screen,created solid 'sphere',yes,1,none,FALSE,none,TRUE
+P7,3,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P7,4,drag,drag,drag their figure down,drag drag,partially,0.5,fusion,TRUE,Recognized the first drag call but did not respond to it,TRUE
+P7,5,select,select,point at the sphere,select,no,0,recognition,TRUE,did not detect the initial select. Had to say twice.,TRUE
+P7,6,resize,resize,change in the size,object size adjusted,yes,1,none,FALSE,none,FALSE
+P7,7,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P7,8,rotate,rotate,do rotation motion,rotate,yes,1,none,FALSE,none,TRUE
+P8,1,create_cube,Create cube,point at a point on the screen,created solid 'cube',yes,1,none,FALSE,none,TRUE
+P8,2,create_sphere,create sphere,point at a point on the screen,created solid 'sphere',yes,1,none,FALSE,none,TRUE
+P8,3,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P8,4,drag,drag,drag their figure down,drag,yes,1,none,FALSE,none,TRUE
+P8,5,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P8,6,resize,resize,change in the size,object size adjusted,yes,1,none,FALSE,none,FALSE
+P8,7,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P8,8,rotate,rotate,do rotation motion,rotate,yes,1,none,FALSE,none,TRUE
+P9,1,create_cube,Create cube,point at a point on the screen,created solid 'cube',yes,1,none,FALSE,none,TRUE
+P9,2,create_sphere,create sphere,point at a point on the screen,created solid 'sphere',yes,1,none,FALSE,none,TRUE
+P9,3,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P9,4,drag,drag,drag their figure down,drag drag,partially,0.5,fusion,TRUE,Recognized the first drag call but did not respond to it,TRUE
+P9,5,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P9,6,resize,resize,change in the size,object size adjusted,yes,1,none,FALSE,none,FALSE
+P9,7,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P9,8,rotate,rotate,do rotation motion,rotate,no,0,recognition,TRUE,only responded after saying 'rotate' a second time,TRUE
+P10,1,create_cube,Create cube,point at a point on the screen,created solid 'cube',yes,1,none,FALSE,none,TRUE
+P10,2,create_sphere,create sphere,point at a point on the screen,created solid 'sphere',yes,1,none,FALSE,none,TRUE
+P10,3,select,select,point at the sphere,select,no,0,recognition,TRUE,did not detect the initial select. Had to say twice.,TRUE
+P10,4,drag,drag,drag their figure,Object changing its position,yes,1,none,FALSE,none,TRUE
+P10,5,select,select,point at the sphere,select,yes,1,none,FALSE,none,TRUE
+P10,6,resize,resize,change in the size,object size adjusted,yes,1,none,FALSE,none,FALSE
+P10,7,select,select,point at the sphere,select,no,0,recognition,TRUE,did not detect the initial select. Had to say twice.,TRUE
+P10,8,rotate,rotate,do rotation motion,rotate,yes,1,none,FALSE,none,TRUE
