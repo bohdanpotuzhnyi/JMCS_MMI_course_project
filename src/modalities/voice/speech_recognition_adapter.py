@@ -23,20 +23,8 @@ from .intent_from_transcript import COMMAND_GRAMMAR, intent_from_transcript
 
 __all__ = ["VoskVoiceAdapter", "SpeechRecognitionVoiceAdapter", "recognize_vosk"]
 
-# Keep imports simple: this module is only used when the voice modality is enabled.
-try:
-    import speech_recognition as sr
-except ImportError as e:  # pragma: no cover
-    raise ImportError(
-        "Voice module requires the 'SpeechRecognition' package. Install with: pip install SpeechRecognition"
-    ) from e
-
-try:
-    import vosk
-except ImportError as e:  # pragma: no cover
-    raise ImportError(
-        "Voice module requires the 'vosk' package. Install with: pip install vosk"
-    ) from e
+import speech_recognition as sr
+import vosk
 
 # Callback types: fusion/core will later pass something like on_voice_event to receive events.
 OnVoiceEvent = Callable[[VoiceEvent], None]
@@ -47,9 +35,8 @@ def _default_model_path() -> str:
     """
     Return the default Vosk model folder.
 
-    The setup scripts place the model at `src/modalities/voice/models/vosk-model` and also
-    export `VOSK_MODEL_PATH`. We support the env var override, otherwise we use the known
-    local path directly (no searching).
+    The setup scripts place the model at `src/modalities/voice/models/vosk-model` and
+    export `VOSK_MODEL_PATH`.
     """
     env_path = os.environ.get("VOSK_MODEL_PATH")
     if env_path:

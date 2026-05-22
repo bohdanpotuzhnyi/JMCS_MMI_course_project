@@ -1,15 +1,5 @@
 """
 Intent extraction: transcript string → (intent, confidence).
-
-This file intentionally contains *only* pure text logic:
-- no microphone
-- no Vosk / SpeechRecognition imports
-- no networking
-
-That keeps it easy to test and easy to monkey-patch from demo apps.
-
-Important: some apps mutate `_RULES` and `COMMAND_GRAMMAR` at runtime to extend the
-vocabulary. Keep those names stable and module-level.
 """
 
 from __future__ import annotations
@@ -52,7 +42,7 @@ class _Rule:
     phrases: tuple[str, ...]
 
 
-# We walk this list top → bottom. First phrase that appears *anywhere* in the text wins.
+# We walk this list top → bottom. First phrase that appears anywhere in the text wins.
 # More specific phrases must come before their broader matches.
 _RULES: tuple[_Rule, ...] = (
     _Rule("rotate-left", ("rotate left", "turn left", "counterclockwise", "counter-clockwise")),
